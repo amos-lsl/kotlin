@@ -334,13 +334,10 @@ class MppJpsIncTestsGenerator(val txt: DependenciesTxt, val testCaseDirProvider:
 
             serviceKtFile(module, fileNameSuffix).setFileContent(buildString {
                 @Suppress("CAST_NEVER_SUCCEEDS")
-                this as StringBuilder // workaround for buildString resolution ambiguity
-
                 if (settings.generatePlatformDependent)
                     appendln("expect fun ${module.platformDependentFunName}(): String")
 
                 appendln("fun ${module.platformIndependentFunName}() = \"common$fileNameSuffix\"")
-
 
                 appendTestFun(module, settings)
             })
