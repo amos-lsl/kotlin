@@ -14,10 +14,7 @@ import org.jetbrains.kotlin.script.KotlinScriptDefinition
 import kotlin.reflect.KClass
 import kotlin.reflect.KType
 import kotlin.reflect.full.starProjectedType
-import kotlin.script.experimental.api.ScriptCompileConfigurationProperties
-import kotlin.script.experimental.api.ScriptDefinition
-import kotlin.script.experimental.api.ScriptDefinitionProperties
-import kotlin.script.experimental.api.ScriptingEnvironmentProperties
+import kotlin.script.experimental.api.*
 import kotlin.script.experimental.dependencies.DependenciesResolver
 import kotlin.script.experimental.jvm.impl.BridgeDependenciesResolver
 import kotlin.script.experimental.location.ScriptExpectedLocation
@@ -29,11 +26,9 @@ abstract class KotlinScriptDefinitionAdapterFromNewAPIBase : KotlinScriptDefinit
 
     protected abstract val scriptFileExtensionWithDot: String
 
-    open val baseClass: KClass<*>
-        get() {
-            val baseClassName = scriptDefinition.compilationConfigurator.defaultConfiguration[ScriptingEnvironmentProperties.baseClass].typeName
-            return this::class.java.classLoader.loadClass(baseClassName).kotlin
-        }
+    open val baseClass: KClass<*> by lazy {
+        getScriptingClass(scriptDefinition.compilationConfigurator.defaultConfiguration[ScriptingEnvironmentProperties.baseClass])
+    }
 
     override val template: KClass<*> get() = baseClass
 
@@ -58,25 +53,22 @@ abstract class KotlinScriptDefinitionAdapterFromNewAPIBase : KotlinScriptDefinit
     }
 
     override val acceptedAnnotations: List<KClass<out Annotation>> by lazy {
-        val cl = this::class.java.classLoader
         val annNames =
             scriptDefinition.compilationConfigurator.defaultConfiguration.getOrNull(ScriptCompileConfigurationProperties.refineConfigurationOnAnnotations)
                     ?: emptyList()
-        annNames.map { (cl.loadClass(it.typeName) as Class<out Annotation>).kotlin }
+        annNames.map { getScriptingClass(it) as KClass<out Annotation> }
     }
 
     override val implicitReceivers: List<KType> by lazy {
-        val cl = this::class.java.classLoader
         val rcNames =
             scriptDefinition.compilationConfigurator.defaultConfiguration.getOrNull(ScriptCompileConfigurationProperties.scriptImplicitReceivers)
                     ?: emptyList()
-        rcNames.map { cl.loadClass(it).kotlin.starProjectedType }
+        rcNames.map { getScriptingClass(it).starProjectedType }
     }
 
     override val environmentVariables: List<Pair<String, KType>> by lazy {
-        val cl = this::class.java.classLoader
         scriptDefinition.compilationConfigurator.defaultConfiguration.getOrNull(ScriptCompileConfigurationProperties.contextVariables)
-            ?.map { (k, v) -> k to cl.loadClass(v.typeName).kotlin.starProjectedType }
+            ?.map { (k, v) -> k to getScriptingClass(v).starProjectedType }
                 ?: emptyList()
     }
 
@@ -89,6 +81,13 @@ abstract class KotlinScriptDefinitionAdapterFromNewAPIBase : KotlinScriptDefinit
             ScriptExpectedLocation.SourcesOnly,
             ScriptExpectedLocation.TestsOnly
         )
+
+    private val scriptingClassGetter by lazy {
+        scriptDefinition.properties.getOrNull(ScriptingEnvironmentProperties.getScriptingClass)
+                ?: throw IllegalArgumentException("Expecting 'getScriptingClass' property in the scripting environment")
+    }
+
+    private fun getScriptingClass(type: KotlinType) = scriptingClassGetter(type, this::class, scriptDefinition.properties)
 }
 
 

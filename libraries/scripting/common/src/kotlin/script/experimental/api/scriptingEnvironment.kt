@@ -5,6 +5,7 @@
 
 package kotlin.script.experimental.api
 
+import kotlin.reflect.KClass
 import kotlin.script.experimental.util.ChainedPropertyBag
 import kotlin.script.experimental.util.typedKey
 
@@ -14,5 +15,31 @@ object ScriptingEnvironmentProperties {
 
     // required by definitions that extract data from script base class annotations
     val baseClass by typedKey<KotlinType>()
+
+    // should contain all dependencies needed for baseClass and compilationConfigurator
+    val configurationDependencies by typedKey<List<ScriptDependency>>()
+
+    // do not use configurationDependencies as script dependencies, so only the dependencies defined by compilationConfigurator will be used
+    // (NOTE: in this case they should include the dependencies for the base class anyway, since this class is needed for script
+    // compilation and instantiation, but compilationConfigurator could be excluded)
+    val isolatedDependencies by typedKey(false)
+
+    // a "class loader" for KotlinTypes
+    val getScriptingClass by typedKey<GetScriptingClass>()
 }
 
+typealias GetScriptingClass = (KotlinType /* class type to load */, KClass<*> /* context class */, ScriptingEnvironment /* environment with dependencies, etc*/) -> KClass<*>
+
+fun ScriptingEnvironment.getScriptingClass(type: KotlinType, contextClass: KClass<*>): KClass<*> {
+    val getClass = getOrNull(ScriptingEnvironmentProperties.getScriptingClass)
+            ?: throw IllegalArgumentException("Expecting 'getScriptingClass' property in the scripting environment: unable to load scripting class $type")
+    return getClass(type, contextClass, this)
+}
+
+fun ScriptingEnvironment.getScriptingClass(type: KotlinType, context: Any): KClass<*> = getScriptingClass(type, context::class)
+
+fun ScriptingEnvironment.getScriptBaseClass(contextClass: KClass<*>): KClass<*> =
+    getScriptingClass(get(ScriptingEnvironmentProperties.baseClass), contextClass)
+
+fun ScriptingEnvironment.getScriptBaseClass(context: Any): KClass<*> =
+    getScriptingClass(get(ScriptingEnvironmentProperties.baseClass), context::class)

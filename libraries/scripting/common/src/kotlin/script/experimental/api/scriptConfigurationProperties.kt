@@ -17,7 +17,7 @@ object ScriptCompileConfigurationProperties {
 
     val scriptBodyTarget by typedKey<ScriptBodyTarget>()
 
-    val scriptImplicitReceivers by typedKey<List<String>>() // in the order from outer to inner scope
+    val scriptImplicitReceivers by typedKey<List<KotlinType>>() // in the order from outer to inner scope
 
     val contextVariables by typedKey<Map<String, KotlinType>>() // external variables
 

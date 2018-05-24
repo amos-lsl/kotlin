@@ -18,13 +18,16 @@ private const val ERROR_MSG_PREFIX = "Unable to construct script definition: "
 
 open class ScriptDefinitionFromAnnotatedBaseClass(val environment: ScriptingEnvironment) : ScriptDefinition {
 
+    private val getScriptingClass = environment.getOrNull(ScriptingEnvironmentProperties.getScriptingClass)
+            ?: throw IllegalArgumentException("${ERROR_MSG_PREFIX}Expecting 'getClass' parameter in the scripting environment")
+
     private val baseClass: KClass<*> = run {
-        val baseClassName = environment.getOrNull(ScriptingEnvironmentProperties.baseClass)?.typeName
-                ?: throw IllegalArgumentException("${ERROR_MSG_PREFIX}Expecting baseClass parameter in the scripting environment")
+        val baseClassType = environment.getOrNull(ScriptingEnvironmentProperties.baseClass)
+                ?: throw IllegalArgumentException("${ERROR_MSG_PREFIX}Expecting 'baseClass' parameter in the scripting environment")
         try {
-            ScriptDefinitionFromAnnotatedBaseClass::class.java.classLoader.loadClass(baseClassName).kotlin
+            getScriptingClass(baseClassType, this::class, environment)
         } catch (e: Throwable) {
-            throw IllegalArgumentException("${ERROR_MSG_PREFIX}Unable to load base class $baseClassName", e)
+            throw IllegalArgumentException("${ERROR_MSG_PREFIX}Unable to load base class $baseClassType", e)
         }
     }
 
@@ -34,13 +37,17 @@ open class ScriptDefinitionFromAnnotatedBaseClass(val environment: ScriptingEnvi
     private val explicitDefinition: ScriptDefinition? =
         baseClass.findAnnotation<KotlinScriptDefinition>()?.definition.takeIf { it != this::class }?.let { it.instantiateScriptHandler() }
 
-    override val properties = (explicitDefinition?.properties ?: ScriptingEnvironment()).also { properties ->
+    override val properties = run {
+        val baseProperties = explicitDefinition?.properties ?: environment
         val toAdd = arrayListOf<Pair<TypedKey<*>, Any>>()
-        baseClass.findAnnotation<KotlinScriptFileExtension>()?.let { toAdd += ScriptDefinitionProperties.fileExtension to it }
-        if (properties.getOrNull(ScriptDefinitionProperties.name) == null) {
+        baseClass.findAnnotation<KotlinScriptFileExtension>()?.let {
+            toAdd += ScriptDefinitionProperties.fileExtension to it
+        }
+        if (baseProperties.getOrNull(ScriptDefinitionProperties.name) == null) {
             toAdd += ScriptDefinitionProperties.name to mainAnnotation.name
         }
-        ScriptingEnvironment(properties, toAdd)
+        if (toAdd.isEmpty()) baseProperties
+        else ScriptingEnvironment(baseProperties, toAdd)
     }
 
     override val compilationConfigurator =
@@ -54,10 +61,17 @@ open class ScriptDefinitionFromAnnotatedBaseClass(val environment: ScriptingEnvi
                 ?: DummyEvaluator::class.instantiateScriptHandler()
 
     private fun <T : Any> KClass<T>.instantiateScriptHandler(): T {
-        val fqn = this.qualifiedName!!
-        val klass: KClass<T> = (baseClass.java.classLoader.loadClass(fqn) as Class<T>).kotlin
-        // TODO: fix call after deciding on constructor parameters
-        return klass.objectInstance ?: klass.primaryConstructor!!.call(environment)
+        val klass: KClass<T> = try {
+            getScriptingClass(KotlinType(this), this@ScriptDefinitionFromAnnotatedBaseClass::class, environment) as KClass<T>
+        } catch (e: Throwable) {
+            throw IllegalArgumentException("${ERROR_MSG_PREFIX}Unable to load handler class $this", e)
+        }
+        try {
+            // TODO: fix call after deciding on constructor parameters
+            return klass.objectInstance ?: klass.primaryConstructor!!.call(environment)
+        } catch (e: Throwable) {
+            throw IllegalArgumentException("${ERROR_MSG_PREFIX}Unable to instantiate handler class $this", e)
+        }
     }
 }
 

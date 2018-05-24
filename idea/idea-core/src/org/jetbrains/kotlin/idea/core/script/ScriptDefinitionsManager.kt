@@ -33,7 +33,6 @@ import org.jetbrains.kotlin.idea.caches.project.SdkInfo
 import org.jetbrains.kotlin.idea.caches.project.getScriptRelatedModuleInfo
 import org.jetbrains.kotlin.script.*
 import org.jetbrains.kotlin.scripting.compiler.plugin.KotlinScriptDefinitionAdapterFromNewAPI
-import org.jetbrains.kotlin.script.*
 import org.jetbrains.kotlin.idea.util.ProjectRootsUtil.isInContent
 import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.script.KotlinScriptDefinition
@@ -49,12 +48,15 @@ import java.net.URLClassLoader
 import kotlin.concurrent.write
 import kotlin.script.dependencies.Environment
 import kotlin.script.dependencies.ScriptContents
+import kotlin.script.experimental.api.KotlinType
 import kotlin.script.experimental.api.ScriptingEnvironment
 import kotlin.script.experimental.api.ScriptingEnvironmentProperties
 import kotlin.script.experimental.definitions.ScriptDefinitionFromAnnotatedBaseClass
 import kotlin.script.experimental.dependencies.DependenciesResolver
 import kotlin.script.experimental.dependencies.ScriptDependencies
 import kotlin.script.experimental.dependencies.asSuccess
+import kotlin.script.experimental.jvm.JvmDependency
+import kotlin.script.experimental.jvm.JvmGetScriptingClass
 import kotlin.script.experimental.location.ScriptExpectedLocation
 import kotlin.script.templates.standard.ScriptTemplateWithArgs
 
@@ -167,9 +169,11 @@ fun loadDefinitionsFromTemplates(
     val baseLoader = ScriptDefinitionContributor::class.java.classLoader
     val loader = if (classpath.isEmpty()) baseLoader else URLClassLoader(classpath.map { it.toURI().toURL() }.toTypedArray(), baseLoader)
 
-    templateClassNames.mapNotNull {
+    templateClassNames.mapNotNull { templateClassName ->
         try {
-            val template = loader.loadClass(it).kotlin
+            // TODO: drop class loading here - it should be handled downstream
+            // as a compatibility measure, the asm based reading of annotations should be implemented to filter classes before classloading
+            val template = loader.loadClass(templateClassName).kotlin
             when {
                 template.annotations.firstIsInstanceOrNull<org.jetbrains.kotlin.script.ScriptTemplateDefinition>() != null ||
                         template.annotations.firstIsInstanceOrNull<kotlin.script.templates.ScriptTemplateDefinition>() != null -> {
@@ -181,7 +185,13 @@ fun loadDefinitionsFromTemplates(
                 }
                 template.annotations.firstIsInstanceOrNull<kotlin.script.experimental.annotations.KotlinScript>() != null -> {
                     KotlinScriptDefinitionAdapterFromNewAPI(
-                        ScriptDefinitionFromAnnotatedBaseClass(ScriptingEnvironment(ScriptingEnvironmentProperties.baseClass to template))
+                        ScriptDefinitionFromAnnotatedBaseClass(
+                            ScriptingEnvironment(
+                                ScriptingEnvironmentProperties.baseClass to KotlinType(templateClassName),
+                                ScriptingEnvironmentProperties.configurationDependencies to listOf(JvmDependency(classpath)),
+                                ScriptingEnvironmentProperties.getScriptingClass to JvmGetScriptingClass()
+                            )
+                        )
                     )
                 }
                 else -> {
@@ -192,13 +202,13 @@ fun loadDefinitionsFromTemplates(
         } catch (e: ClassNotFoundException) {
             // Assuming that direct ClassNotFoundException is the result of versions mismatch and missing subsystems, e.g. gradle
             // so, it only results in warning, while other errors are severe misconfigurations, resulting it user-visible error
-            LOG.warn("[kts] cannot load script definition class $it", e)
+            LOG.warn("[kts] cannot load script definition class $templateClassName", e)
             null
         } catch (e: NoClassDefFoundError) {
-            LOG.error("[kts] cannot load script definition class $it", e)
+            LOG.error("[kts] cannot load script definition class $templateClassName", e)
             null
         } catch (e: InvocationTargetException) {
-            LOG.error("[kts] cannot load script definition class $it", e)
+            LOG.error("[kts] cannot load script definition class $templateClassName", e)
             null
         }
     }

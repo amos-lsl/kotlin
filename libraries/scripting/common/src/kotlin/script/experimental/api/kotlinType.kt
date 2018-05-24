@@ -5,4 +5,16 @@
 
 package kotlin.script.experimental.api
 
-class KotlinType(val typeName: String) // TODO: copy properties from KType
+import kotlin.reflect.KClass
+import kotlin.reflect.KType
+
+class KotlinType(
+    val typeName: String,
+    val fromClass: KClass<*>? = null
+    // TODO: copy properties from KType
+) {
+    // TODO: implement other approach for non-class types
+    constructor(type: KType) : this((type.classifier as KClass<*>).qualifiedName!!, type.classifier as KClass<*>)
+
+    constructor(kclass: KClass<*>) : this(kclass.qualifiedName!!, kclass)
+}
